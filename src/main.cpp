@@ -6,6 +6,7 @@
 #include <RTCZero.h>
 #include <CayenneLPP.h>
 #include <Wire.h>
+#include <ArduinoLog.h>
 
 // Sensor Libraries
 #include "Adafruit_Si7021.h"
@@ -46,30 +47,45 @@ void rtcAlarm() {
   rtc_alarm_raised = true;
 }
 
-void initMyRtc() {
+void setup_RTC() {
   rtc.begin();
   rtc.setEpoch(0);
   rtc.attachInterrupt(rtcAlarm);
   rtc_init_done = true;
+  pinMode(LED_BUILTIN,OUTPUT);
+  digitalWrite(LED_BUILTIN, HIGH);
+}
+
+void setup_serial() {
+  Serial.begin(115200);
+#if DEBUG
+  delay(5*1000);
+  while (!Serial);
+#endif
 }
 
 void sleepfor(int seconds) {
-  digitalWrite(LED_BUILTIN, LOW);
-#if DEBUG
-    delay(seconds*1000);
-#else
-    LowPower.sleep(seconds * 1000);
-#endif
-  digitalWrite(LED_BUILTIN, HIGH);
+  uint32_t now = rtc.getEpoch();
+
+  Log.verbose(F("entering sleepfor(%d)"),seconds);
+  rtc.setAlarmEpoch(now + seconds);
+  rtc.enableAlarm(rtc.MATCH_YYMMDDHHMMSS);
+  Serial.end();
+  USBDevice.detach();
+  digitalWrite(LED_BUILTIN, LOW);    // turn the LED off by making the voltage LOW
+  rtc.standbyMode();    // Sleep until next alarm match
+  digitalWrite(LED_BUILTIN, HIGH);   // turn the LED on (HIGH is the voltage level)
+  USBDevice.attach();
+  setup_serial();
+  Log.verbose(F("leaving sleepfor(%d)"),seconds);
 }
 
 
 //
 // Scan for sensors
 //
-void setupI2C() {
+void setup_I2C() {
   byte error, address;
-  int nDevices;
 
 // 0x29 TSL45315 (Light)
 // 0x38 VEML6070 (Light)
@@ -83,30 +99,19 @@ void setupI2C() {
 // 0x76 BME280
 // 0x77 BME680 (also BMP180)
 
-#if DEBUG
-  Serial.println("Scanning i2c bus");
-#endif
+  Log.verbose("Scanning i2c bus");
   Wire.begin();
   for(address = 1; address < 127; address++ ) {
     Wire.beginTransmission(address);
     error = Wire.endTransmission();
 
     if (error == 0) {
-#if DEBUG
-      Serial.print("I2C device found at address 0x");
-      if (address<16)
-        Serial.print("0");
-      Serial.print(address,HEX);
-      Serial.println("  !");
-#endif
+      Log.verbose(F("I2C device found at address 0x%x !"),address);
 
       if (address == 0x39) {
         tsl2561 = Adafruit_TSL2561_Unified(address);
         tsl2561_found = tsl2561.begin();
-#if DEBUG
-        Serial.print("TSL2561 found? ");
-        Serial.println(tsl2561_found);
-#endif
+        Log.verbose(F("TSL2561 found? %T"),tsl2561_found);
         if (tsl2561_found) {
           // init the sensor
           tsl2561.enableAutoRange(true);
@@ -117,41 +122,28 @@ void setupI2C() {
         // SI7021
         si7021 = Adafruit_Si7021();
         si7021_found = si7021.begin();
-#if DEBUG
-        Serial.print("Si7021 found? ");
-        Serial.println(si7021_found);
-#endif
+        Log.verbose(F("Si7021 found? %T"),si7021_found);
       }
 
       if (address == 0x60) {
         // ECC508
         ecc508_found = ECCX08.begin();
-#if DEBUG
-        Serial.print("ECC508 found? ");
-        Serial.println(ecc508_found);
-#endif
+        Log.verbose(F("ECC508 found? %T"),ecc508_found);
       }
 
       if (address == 0x76 || address == 0x77) {
         // BME280
         bme280_found = bme280.begin(address);
-#if DEBUG
-        Serial.print("BME280 found? ");
-        Serial.println(bme280_found);
-#endif
+        Log.verbose(F("BME280 found? %T"),bme280_found);
       }
     }
   }
 }
 
-void setupLora() {
+void setup_Lora() {
   modem.begin(EU868);
-#if DEBUG
-  Serial.print("Your module version is: ");
-  Serial.println(modem.version());
-  Serial.print("Your device EUI is: ");
-  Serial.println(modem.deviceEUI());
-#endif
+  Log.notice(F("Your module version is: %s"),modem.version().c_str());
+  Log.notice(F("Your device EUI is: %s"),modem.deviceEUI().c_str());
   int connected = 0;
   while (!connected) {
     connected = modem.joinOTAA(appEui,appKey);
@@ -163,21 +155,37 @@ void setupLora() {
   modem.minPollInterval(60);
 }
 
+// Logging helper routines
+void printTimestamp(Print* _logOutput) {
+  char c[12];
+  sprintf(c, "%10lu ", millis());
+  _logOutput->print(c);
+}
+
+void printNewline(Print* _logOutput) {
+  _logOutput->print('\n');
+}
+
+void setup_logging() {
+  Log.begin(LOG_LEVEL_VERBOSE, &Serial);
+  Log.setPrefix(printTimestamp);
+  Log.setSuffix(printNewline);
+  Log.verbose("Logging has started");
+}
 
 void setup() {
 
-#if DEBUG
-  Serial.begin(115200);
-  while (!Serial);
-  Serial.println("System starting");
-#endif
+  setup_serial();
 
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, HIGH);
   delay(5000);
 
-  setupI2C();
-  setupLora();
+  setup_logging();
+
+  setup_RTC();
+  setup_I2C();
+  setup_Lora();
   rcvBuffer.reserve(64);
 
   analogReadResolution(10);
@@ -218,7 +226,7 @@ void read_voltage() {
   if (v == 0 || v > 2.7) {
     sleeptime = 60;
   } else {
-    sleeptime = 120;
+    sleeptime = 240;
   }
 
   if (v > 0.0) {
@@ -248,17 +256,14 @@ void sendBuffer() {
     modem.beginPacket();
     modem.write(lpp.getBuffer(), lpp.getSize());
     err = modem.endPacket(false);
-#if DEBUG
     if (err > 0)
-      Serial.println("Packet sent");
+      Log.verbose(F("Packet sent"));
     else
-      Serial.println("Error sending packet");
-#else
+      Log.error(F("Error sending packet"));
     if (err == 0) {
       // re-join
-      setupLora();
+      setup_Lora();
     }
-#endif
   }
 }
 
@@ -268,12 +273,9 @@ String receiveData(String rcv) {
     rcv += (char)modem.read();
     count++;
   }
-#if DEBUG
   if (count > 0) {
-    Serial.print(count);
-    Serial.println(" Bytes received");
+    Log.verbose(F("Bytes recived: %d"),count);
   }
-#endif
   return rcv;
 }
 
