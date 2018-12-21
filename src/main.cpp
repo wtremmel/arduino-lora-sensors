@@ -108,7 +108,8 @@ void setup_I2C() {
     if (error == 0) {
       Log.verbose(F("I2C device found at address 0x%x !"),address);
 
-      if (address == 0x39) {
+      if ((address == 0x39) || (address == 0x29) || (address == 0x49)) {
+
         tsl2561 = Adafruit_TSL2561_Unified(address);
         tsl2561_found = tsl2561.begin();
         Log.verbose(F("TSL2561 found? %T"),tsl2561_found);
@@ -188,7 +189,7 @@ void setup() {
   setup_Lora();
   rcvBuffer.reserve(64);
 
-  analogReadResolution(10);
+  analogReadResolution(12);
   analogReference(AR_INTERNAL1V0); //AR_DEFAULT: the default analog reference of 3.3V // AR_INTERNAL1V0: a built-in 1.0V reference
   //analogReference(AR_EXTERNAL);
   //
@@ -217,7 +218,7 @@ float my_voltage() {
 
   int sensorValue = analogRead(ADC_BATTERY);
   // Convert the analog reading (which goes from 0 - 1023) to a voltage (0 - 4.3V):
-  return sensorValue * (3.25 / 1023.0);
+  return sensorValue * (3.25 / 4096.0);
 }
 
 void read_voltage() {
@@ -236,6 +237,7 @@ void read_voltage() {
 
 void readSensors() {
   lpp.reset();
+  setup_I2C();
   if (si7021_found) {
     read_si7021();
   }
