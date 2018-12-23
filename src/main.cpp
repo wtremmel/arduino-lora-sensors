@@ -26,10 +26,13 @@ bool tsl2561_found= false;
 bool ecc508_found= false;
 bool voltage_found= true;
 
+bool led_dynamic = true;
+
 unsigned static int sleeptime = 60;
 
 CayenneLPP lpp(51);
-String rcvBuffer;
+#define MAX_BUF_LEN 64
+char rcvBuffer[MAX_BUF_LEN];
 
 // LoRa Definitions
 LoRaModem modem;
@@ -53,7 +56,8 @@ void setup_RTC() {
   rtc.attachInterrupt(rtcAlarm);
   rtc_init_done = true;
   pinMode(LED_BUILTIN,OUTPUT);
-  digitalWrite(LED_BUILTIN, HIGH);
+  if (led_dynamic)
+    digitalWrite(LED_BUILTIN, HIGH);
 }
 
 void setup_serial() {
@@ -72,9 +76,11 @@ void sleepfor(int seconds) {
   rtc.enableAlarm(rtc.MATCH_YYMMDDHHMMSS);
   Serial.end();
   USBDevice.detach();
-  digitalWrite(LED_BUILTIN, LOW);    // turn the LED off by making the voltage LOW
+  if (led_dynamic)
+    digitalWrite(LED_BUILTIN, LOW);
   rtc.standbyMode();    // Sleep until next alarm match
-  digitalWrite(LED_BUILTIN, HIGH);   // turn the LED on (HIGH is the voltage level)
+  if (led_dynamic)
+    digitalWrite(LED_BUILTIN, HIGH);
   USBDevice.attach();
   setup_serial();
   Log.verbose(F("leaving sleepfor(%d)"),seconds);
@@ -179,7 +185,8 @@ void setup() {
   setup_serial();
 
   pinMode(LED_BUILTIN, OUTPUT);
-  digitalWrite(LED_BUILTIN, HIGH);
+  if (led_dynamic)
+    digitalWrite(LED_BUILTIN, HIGH);
   delay(5000);
 
   setup_logging();
@@ -187,7 +194,6 @@ void setup() {
   setup_RTC();
   setup_I2C();
   setup_Lora();
-  rcvBuffer.reserve(64);
 
   analogReadResolution(12);
   analogReference(AR_INTERNAL1V0); //AR_DEFAULT: the default analog reference of 3.3V // AR_INTERNAL1V0: a built-in 1.0V reference
@@ -269,37 +275,91 @@ void sendBuffer() {
   }
 }
 
-String receiveData(String rcv) {
+unsigned char receiveData(char *rcv) {
   int count = 0;
-  while (modem.available()) {
-    rcv += (char)modem.read();
-    count++;
+  while (modem.available() && (count < MAX_BUF_LEN)) {
+    rcv[count++] =  (char)modem.read();
   }
   if (count > 0) {
     Log.verbose(F("Bytes recived: %d"),count);
   }
-  return rcv;
+  return count;
 }
+
+// -------------- Command Processing -----------------
+void process_system_led_command(unsigned char len, char *buffer) {
+  if (len == 0)
+    return;
+
+  switch (buffer[0]) {
+    case 0:
+      led_dynamic = false;
+      pinMode(LED_BUILTIN,LOW);
+      break;
+    case 1:
+      led_dynamic = false;
+      pinMode(LED_BUILTIN, HIGH);
+      break;
+    case 0xff:
+      led_dynamic = true;
+      break;
+    default:
+      Log.error(F("Unknown LED command %d"), buffer[0]);
+      break;
+  }
+}
+
+
+void process_system_command(unsigned char len,  char *buffer) {
+  if (len == 0) {
+    Log.error(F("Zero length system command"));
+    return;
+  }
+  switch (buffer[0]) {
+    case 0x03:
+      process_system_led_command(len-1,buffer+1);
+      break;
+  }
+}
+
+void process_sensor_command(unsigned char len,  char *buffer) {
+  if (len == 0) {
+    Log.error(F("Zero length sensor command"));
+    return;
+  }
+}
+
+void process_received_lora(unsigned char len,  char *buffer) {
+  if (len == 0)
+    return;
+
+  Log.verbose(F("Processing %d bytes of received data"),len);
+  switch (buffer[0]) {
+    case 0:
+      process_system_command(len-1,buffer+1);
+      break;
+    case 1:
+      process_sensor_command(len-1,buffer+1);
+      break;
+    default:
+      Log.error(F("Unknown command %d"),buffer[0]);
+      break;
+  }
+}
+
 
 void loop() {
   // put your main code here, to run repeatedly:
   readSensors();
   sendBuffer();
 
-  rcvBuffer = "";
-  receiveData(rcvBuffer);
 
-#if DEBUG
-  if (rcvBuffer.length()) {
-    Serial.print("Received: " + rcvBuffer + " - ");
-    for (unsigned int i = 0; i < rcvBuffer.length(); i++) {
-      Serial.print(rcvBuffer[i] >> 4, HEX);
-      Serial.print(rcvBuffer[i] & 0xF, HEX);
-      Serial.print(" ");
-    }
-    Serial.println();
+  unsigned char rcvLen = receiveData(rcvBuffer);
+
+  if (rcvLen > 0) {
+    process_received_lora(rcvLen,rcvBuffer);
   }
-#endif
+
 
   sleepfor(sleeptime);
 }
