@@ -68,25 +68,8 @@ void setup_serial() {
 #endif
 }
 
-void send_32bit(uint32_t x) {
-  modem.write(x & 0xff);
-  x >>= 8;
-  modem.write(x & 0xff);
-  x >>= 8;
-  modem.write(x & 0xff);
-  x >>= 8;
-  modem.write(x & 0xff);
-
-}
-
 void sleepfor(int seconds) {
   uint32_t now = rtc.getEpoch();
-
-  modem.beginPacket();
-  send_32bit(now);
-  send_32bit(now+seconds);
-  modem.endPacket(false);
-  delay(1000);
 
   Log.verbose(F("entering sleepfor(%d)"),seconds);
   rtc.setAlarmEpoch(now + seconds);
@@ -276,20 +259,31 @@ void readSensors() {
   }
 }
 
+void send_32bit(uint32_t x) {
+  lpp.addDigitalInput(10,x & 0xff);
+  x >>= 8;
+  lpp.addDigitalInput(11,x & 0xff);
+  x >>= 8;
+  lpp.addDigitalInput(12,x & 0xff);
+  x >>= 8;
+  lpp.addDigitalInput(13,x & 0xff);
+}
+
 void sendBuffer() {
-  if (lpp.getSize() > 0) {
-    int err;
-    modem.beginPacket();
+  int err;
+  modem.beginPacket();
+  send_32bit(rtc.getEpoch());
+  if (lpp.getSize() > 0)
     modem.write(lpp.getBuffer(), lpp.getSize());
-    err = modem.endPacket(false);
-    if (err > 0)
-      Log.verbose(F("Packet sent"));
-    else
-      Log.error(F("Error sending packet"));
-    if (err == 0) {
-      // re-join
-      setup_Lora();
-    }
+
+  err = modem.endPacket(false);
+  if (err > 0)
+    Log.verbose(F("Packet sent"));
+  else
+    Log.error(F("Error sending packet"));
+  if (err == 0) {
+    // re-join
+    setup_Lora();
   }
 }
 
