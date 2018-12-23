@@ -68,12 +68,29 @@ void setup_serial() {
 #endif
 }
 
+void send_32bit(uint32_t x) {
+  modem.write(x & 0xff);
+  x >>= 8;
+  modem.write(x & 0xff);
+  x >>= 8;
+  modem.write(x & 0xff);
+  x >>= 8;
+  modem.write(x & 0xff);
+
+}
+
 void sleepfor(int seconds) {
   uint32_t now = rtc.getEpoch();
 
+  modem.beginPacket();
+  send_32bit(now);
+  send_32bit(now+seconds);
+  modem.endPacket(false);
+  delay(1000);
+
   Log.verbose(F("entering sleepfor(%d)"),seconds);
   rtc.setAlarmEpoch(now + seconds);
-  rtc.enableAlarm(rtc.MATCH_YYMMDDHHMMSS);
+  rtc.enableAlarm(rtc.MATCH_MMSS);
   Serial.end();
   USBDevice.detach();
   if (led_dynamic)
@@ -84,6 +101,7 @@ void sleepfor(int seconds) {
   USBDevice.attach();
   setup_serial();
   Log.verbose(F("leaving sleepfor(%d)"),seconds);
+  rtc.disableAlarm();
 }
 
 
