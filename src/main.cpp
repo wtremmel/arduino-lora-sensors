@@ -231,7 +231,7 @@ void read_voltage() {
   float v = my_voltage();
 
   if (v == 0 || v > 2.7) {
-    sleeptime = 60;
+    sleeptime = 90;
   } else {
     sleeptime = 240;
   }
