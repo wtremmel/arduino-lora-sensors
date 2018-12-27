@@ -55,9 +55,6 @@ void setup_RTC() {
   rtc.setEpoch(0);
   rtc.attachInterrupt(rtcAlarm);
   rtc_init_done = true;
-  pinMode(LED_BUILTIN,OUTPUT);
-  if (led_dynamic)
-    digitalWrite(LED_BUILTIN, HIGH);
 }
 
 void setup_serial() {
@@ -83,6 +80,7 @@ void sleepfor(int seconds) {
     digitalWrite(LED_BUILTIN, HIGH);
   USBDevice.attach();
   setup_serial();
+  delay(1000);
   Log.verbose(F("leaving sleepfor(%d)"),seconds);
   rtc.disableAlarm();
 }
@@ -279,10 +277,10 @@ void sendBuffer() {
   err = modem.endPacket(false);
   if (err > 0)
     Log.verbose(F("Packet sent"));
-  else
-    Log.error(F("Error sending packet"));
-  if (err == 0) {
+  else {
+    Log.error(F("Error sending packet: %d"),err);
     // re-join
+    modem.restart();
     setup_Lora();
   }
 }
