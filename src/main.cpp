@@ -29,6 +29,7 @@ bool voltage_found= true;
 bool led_dynamic = true;
 
 unsigned static int sleeptime = 60;
+unsigned static int error_counter = 0;
 
 CayenneLPP lpp(51);
 #define MAX_BUF_LEN 64
@@ -275,13 +276,18 @@ void sendBuffer() {
     modem.write(lpp.getBuffer(), lpp.getSize());
 
   err = modem.endPacket(false);
-  if (err > 0)
+  if (err > 0) {
     Log.verbose(F("Packet sent"));
+    error_counter = 0;
+  }
   else {
-    Log.error(F("Error sending packet: %d"),err);
-    // re-join
-    modem.restart();
-    setup_Lora();
+    error_counter++;
+    Log.error(F("Error sending packet: %d - Error counter: %d"),err,error_counter);
+    if (error_counter > 10) {
+      // re-join
+      modem.restart();
+      setup_Lora();
+    }
   }
 }
 
