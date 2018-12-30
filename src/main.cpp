@@ -12,6 +12,7 @@
 #include "Adafruit_Si7021.h"
 #include "Adafruit_BME280.h"
 #include "Adafruit_TSL2561_U.h"
+#include "Adafruit_ADS1015.h"
 #include <ArduinoECCX08.h>
 
 #include <ArduinoLowPower.h>
@@ -20,11 +21,13 @@
 Adafruit_Si7021 si7021;
 Adafruit_BME280 bme280;
 Adafruit_TSL2561_Unified tsl2561 = Adafruit_TSL2561_Unified(TSL2561_ADDR_FLOAT);
+Adafruit_ADS1115 ads1115;
 bool si7021_found = false;
 bool bme280_found = false;
 bool tsl2561_found= false;
 bool ecc508_found= false;
 bool voltage_found= true;
+bool ads1115_found = false;
 
 bool led_dynamic = true;
 
@@ -38,7 +41,7 @@ char rcvBuffer[MAX_BUF_LEN];
 // LoRa Definitions
 LoRaModem modem;
 String appEui = "70B3D57ED001308A";
-String appKey = "584E76FEA1282A36D93D526FF86E8FF3";
+String appKey = "A429A527FE6074F13A1511040BCEBB05";
 
 //
 // General helper functions
@@ -70,6 +73,9 @@ void sleepfor(int seconds) {
   uint32_t now = rtc.getEpoch();
 
   Log.verbose(F("entering sleepfor(%d)"),seconds);
+#if defined(DEBUG)
+  delay(seconds * 1000);
+#else
   rtc.setAlarmEpoch(now + seconds);
   rtc.enableAlarm(rtc.MATCH_MMSS);
   Serial.end();
@@ -82,6 +88,7 @@ void sleepfor(int seconds) {
   USBDevice.attach();
   setup_serial();
   delay(1000);
+#endif
   Log.verbose(F("leaving sleepfor(%d)"),seconds);
   rtc.disableAlarm();
 }
@@ -131,7 +138,12 @@ void setup_I2C() {
         si7021_found = si7021.begin();
         Log.verbose(F("Si7021 found? %T"),si7021_found);
       }
-
+      if ((address >= 0x48) && (address <= 0x4b)) {
+        ads1115 = Adafruit_ADS1115(address);
+        ads1115.begin();
+        ads1115_found = true;
+        Log.notice(F("ADS1115 found at 0x%x"),address);
+      }
       if (address == 0x60) {
         // ECC508
         ecc508_found = ECCX08.begin();
@@ -218,6 +230,13 @@ void read_bme280() {
   lpp.addBarometricPressure(3,bme280.readPressure() / 100.0F);
 }
 
+void read_ads1115() {
+  for (int i=0;i<4;i++) {
+    uint16_t r = ads1115.readADC_SingleEnded(i);
+    lpp.addLuminosity(20+i, r);
+  }
+}
+
 float my_voltage() {
 
   // read the input on analog pin 0:
@@ -230,7 +249,9 @@ float my_voltage() {
 void read_voltage() {
   float v = my_voltage();
 
-  if (v == 0 || v > 2.7) {
+  Log.verbose(F("Voltage is %D"), v);
+
+  if ((v <= 0.1) || (v > 2.7)) {
     sleeptime = 90;
   } else {
     sleeptime = 240;
@@ -253,6 +274,9 @@ void readSensors() {
   if (tsl2561_found) {
     read_tsl2561();
   }
+  if (ads1115_found) {
+    read_ads1115();
+  }
   if (voltage_found) {
     read_voltage();
   }
@@ -271,7 +295,6 @@ void send_32bit(uint32_t x) {
 void sendBuffer() {
   int err;
   modem.beginPacket();
-  send_32bit(rtc.getEpoch());
   if (lpp.getSize() > 0)
     modem.write(lpp.getBuffer(), lpp.getSize());
 
