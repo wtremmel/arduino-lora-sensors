@@ -76,13 +76,14 @@ void sleepfor(int seconds) {
 #if defined(DEBUG)
   delay(seconds * 1000);
 #else
-  rtc.setAlarmEpoch(now + seconds);
-  rtc.enableAlarm(rtc.MATCH_MMSS);
+  // rtc.setAlarmEpoch(now + seconds);
+  // rtc.enableAlarm(rtc.MATCH_MMSS);
   Serial.end();
   USBDevice.detach();
   if (led_dynamic)
     digitalWrite(LED_BUILTIN, LOW);
-  rtc.standbyMode();    // Sleep until next alarm match
+  // rtc.standbyMode();    // Sleep until next alarm match
+  LowPower.sleep(seconds * 1000);
   if (led_dynamic)
     digitalWrite(LED_BUILTIN, HIGH);
   USBDevice.attach();
