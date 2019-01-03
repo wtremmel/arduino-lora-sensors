@@ -251,12 +251,15 @@ void read_voltage() {
   float v = my_voltage();
 
   Log.verbose(F("Voltage is %D"), v);
-
-  if ((v <= 0.1) || (v > 2.7)) {
-    sleeptime = 90;
+  
+  if (v > 0.1) {
+    sleeptime = (int)(10000.0 / (v ^ 4.0));
   } else {
-    sleeptime = 240;
+    sleeptime = 90;
   }
+
+  if (sleeptime < 90)
+    sleeptime = 90;
 
   if (v > 0.0) {
     lpp.addAnalogInput(5,my_voltage());
