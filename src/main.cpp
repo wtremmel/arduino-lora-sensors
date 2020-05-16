@@ -1,5 +1,5 @@
 
-// #define DEBUG 1
+#define DEBUG 1
 
 
 #include <MKRWAN.h>
@@ -7,6 +7,7 @@
 #include <CayenneLPP.h>
 #include <Wire.h>
 #include <ArduinoLog.h>
+#include <WDTZero.h>
 
 // Sensor Libraries
 #include "Adafruit_Si7021.h"
@@ -22,6 +23,7 @@ Adafruit_Si7021 si7021;
 Adafruit_BME280 bme280;
 Adafruit_TSL2561_Unified tsl2561 = Adafruit_TSL2561_Unified(TSL2561_ADDR_FLOAT);
 Adafruit_ADS1115 ads1115;
+
 bool si7021_found = false;
 bool bme280_found = false;
 bool tsl2561_found= false;
@@ -47,6 +49,8 @@ String appKey = "A429A527FE6074F13A1511040BCEBB05";
 // General helper functions
 //
 RTCZero rtc;
+WDTZero dog;
+
 bool rtc_init_done = false;
 bool rtc_alarm_raised = false;
 
@@ -195,6 +199,7 @@ void setup_logging() {
 
 void setup() {
 
+  dog.setup(WDT_SOFTCYCLE16M);
   setup_serial();
 
   pinMode(LED_BUILTIN, OUTPUT);
@@ -212,6 +217,7 @@ void setup() {
   analogReference(AR_INTERNAL1V0); //AR_DEFAULT: the default analog reference of 3.3V // AR_INTERNAL1V0: a built-in 1.0V reference
   //analogReference(AR_EXTERNAL);
   //
+  dog.clear();
 }
 
 void read_tsl2561() {
@@ -310,7 +316,7 @@ void sendBuffer() {
   else {
     error_counter++;
     Log.error(F("Error sending packet: %d - Error counter: %d"),err,error_counter);
-    if (error_counter > 10) {
+    if (error_counter > 100) {
       // re-join
       modem.restart();
       setup_Lora();
@@ -359,6 +365,9 @@ void process_system_command(unsigned char len,  char *buffer) {
     return;
   }
   switch (buffer[0]) {
+    case 0x01:
+      dog.setup(WDT_HARDCYCLE2S);
+      break;
     case 0x03:
       process_system_led_command(len-1,buffer+1);
       break;
@@ -393,9 +402,9 @@ void process_received_lora(unsigned char len,  char *buffer) {
 
 void loop() {
   // put your main code here, to run repeatedly:
+  dog.clear();
   readSensors();
   sendBuffer();
-
 
   unsigned char rcvLen = receiveData(rcvBuffer);
 
@@ -403,6 +412,6 @@ void loop() {
     process_received_lora(rcvLen,rcvBuffer);
   }
 
-
+  dog.clear();
   sleepfor(sleeptime);
 }
